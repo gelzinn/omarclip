@@ -20,7 +20,7 @@ shift 3
 [[ ${1:-} == -- ]] && shift
 
 src=$(command -v gpu-screen-recorder) || {
-  echo "omarclip: gpu-screen-recorder is not installed (pacman -S gpu-screen-recorder)" >&2
+  echo "omarclip: gpu-screen-recorder is not installed" >&2
   exit 127
 }
 
