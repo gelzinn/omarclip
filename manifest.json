@@ -1,0 +1,28 @@
+{
+  "schemaVersion": 1,
+  "id": "io.github.gelzinn.omarclip",
+  "name": "Omarclip",
+  "version": "0.1.0",
+  "author": "gelzinn",
+  "license": "MIT",
+  "homepage": "https://github.com/gelzinn/omarclip",
+  "repository": "https://github.com/gelzinn/omarclip",
+  "description": "Instant replay for Omarchy, like ShadowPlay's Alt+F10: a hotkey saves the last minutes of your screen at the quality you pick.",
+  "kinds": [
+    "service",
+    "overlay",
+    "bar-widget"
+  ],
+  "entryPoints": {
+    "service": "Service.qml",
+    "overlay": "Panel.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omarclip",
+    "description": "Instant replay status; click to open settings, right-click to save a clip",
+    "category": "Media",
+    "allowMultiple": false,
+    "defaultSection": "right"
+  }
+}

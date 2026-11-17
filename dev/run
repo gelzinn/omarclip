@@ -1,0 +1,56 @@
+#!/bin/bash
+# Omarclip in a Quickshell instance of its own, for development.
+#
+#   dev/run [up]          start, or restart
+#   dev/run down          stop
+#   dev/run call M [A]    the plugin's IPC, e.g. dev/run call panel
+#   dev/run press KEY     a key press for the panel, e.g. Down or ctrl+s
+#   dev/run inspect       panel and buffer state as JSON
+#   dev/run log           follow the log
+set -euo pipefail
+
+here=$(cd "$(dirname "$0")" && pwd)
+# Quickshell loads QML only from under its config folder, so the instance
+# gets one: dev/shell.qml with links to the plugin and to Omarchy's Commons
+# and Ui. Under the runtime dir, which only you can write to.
+home="${XDG_RUNTIME_DIR:?XDG_RUNTIME_DIR is not set}/omarclip-dev-root"
+omarchy="${OMARCHY_PATH:-/usr/share/omarchy}/shell"
+
+qs_here() { qs -p "$home/shell.qml" "$@"; }
+
+down() {
+  local pid
+  pid=$(cat "$home/pid" 2>/dev/null) || return 0
+  if [[ $(readlink "/proc/$pid/exe" 2>/dev/null) == */quickshell ]]; then
+    kill "$pid"
+    while kill -0 "$pid" 2>/dev/null; do sleep 0.1; done
+  fi
+  rm -f "$home/pid"
+  # A killed Quickshell can't stop its recorder on the way out.
+  pid=$(cat "$XDG_RUNTIME_DIR/omarclip-dev/recorder.pid" 2>/dev/null) || return 0
+  [[ $(readlink "/proc/$pid/exe" 2>/dev/null) == */omarclip-gsr* ]] && kill -INT "$pid"
+  return 0
+}
+
+up() {
+  down
+  mkdir -p "$home"
+  ln -sfn "$here/.." "$home/plugin"
+  ln -sfn "$omarchy/Commons" "$home/Commons"
+  ln -sfn "$omarchy/Ui" "$home/Ui"
+  cp "$here/shell.qml" "$home/shell.qml"
+  setsid qs -p "$home/shell.qml" >"$home/log" 2>&1 </dev/null &
+  echo $! >"$home/pid"
+  echo "running as $! (log: $home/log)"
+}
+
+command=${1:-up}
+(( $# )) && shift
+case $command in
+  up | down) "$command" ;;
+  call) qs_here ipc call omarclip-dev "$@" ;;
+  press) qs_here ipc call omarclip-dev-host press "$@" ;;
+  inspect) qs_here ipc call omarclip-dev-host inspect ;;
+  log) tail -f "$home/log" ;;
+  *) sed -n '2,9p' "$0" >&2; exit 2 ;;
+esac

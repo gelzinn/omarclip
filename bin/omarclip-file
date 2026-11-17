@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# Files a saved clip and makes its thumbnail. Takes JSON on stdin:
+#
+#   {"path": ".../Replay_2026-11-16_21-04-11.mp4",
+#    "dir": "/home/you/Videos/Clips/Cs2",   (where it goes; "" keeps it in place)
+#    "name": "Cs2 2026-11-16 21-04-11",      (file name without extension)
+#    "thumbs": "/home/you/.cache/omarclip/thumbs"}
+#
+# Prints one JSON line: {"path", "thumb"}. A name already taken gets " (2)".
+
+set -uo pipefail
+
+request=$(cat)
+path=$(jq -r '.path // ""' <<<"$request")
+dir=$(jq -r '.dir // ""' <<<"$request")
+name=$(jq -r '.name // ""' <<<"$request")
+thumbs=$(jq -r '.thumbs // ""' <<<"$request")
+
+[[ -f $path ]] || { echo "omarclip-file: no such clip" >&2; exit 1; }
+
+if [[ -n $dir && -n $name && $name != */* ]]; then
+  if mkdir -p -- "$dir"; then
+    target="$dir/$name.mp4"
+    n=2
+    while [[ -e $target ]]; do target="$dir/$name ($n).mp4"; n=$((n + 1)); done
+    mv -n -- "$path" "$target" && path=$target
+  fi
+fi
+
+thumb=""
+if [[ -n $thumbs ]] && command -v ffmpeg >/dev/null && mkdir -p -- "$thumbs"; then
+  thumb="$thumbs/$(printf '%s' "$path" | sha1sum | cut -c1-16).jpg"
+  # The last moment of the clip: what you pressed the key for.
+  ffmpeg -v error -sseof -0.3 -i "$path" -frames:v 1 -vf "scale=480:-2" -q:v 4 -y "$thumb" </dev/null \
+    || ffmpeg -v error -i "$path" -frames:v 1 -vf "scale=480:-2" -q:v 4 -y "$thumb" </dev/null \
+    || thumb=""
+fi
+
+jq -cn --arg path "$path" --arg thumb "$thumb" '{path: $path, thumb: $thumb}'

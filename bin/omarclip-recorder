@@ -1,0 +1,53 @@
+#!/bin/bash
+
+# Runs Omarclip's replay buffer: gpu-screen-recorder in replay mode, kept in
+# memory (or on disk) until a save asks for the last N seconds.
+#
+#   omarclip-recorder <runtime-dir> <cache-dir> <output-dir> -- <recorder args...>
+#
+# The recorder runs from a private copy named omarclip-gsr. Omarchy's own
+# screen recording treats any gpu-screen-recorder of yours as "a recording in
+# progress": its record key would stop the replay buffer instead of starting
+# a recording, and the bar would show a recording all the time. Under its own
+# name the buffer and Omarchy's recordings never see each other. The copy is
+# refreshed whenever the installed recorder changes.
+
+set -uo pipefail
+umask 077
+
+runtime_dir=${1:?runtime dir} cache_dir=${2:?cache dir} output_dir=${3:?output dir}
+shift 3
+[[ ${1:-} == -- ]] && shift
+
+src=$(command -v gpu-screen-recorder) || {
+  echo "omarclip: gpu-screen-recorder is not installed (pacman -S gpu-screen-recorder)" >&2
+  exit 127
+}
+
+mkdir -p "$runtime_dir" "$cache_dir/bin" && chmod 700 "$runtime_dir" || exit 1
+mkdir -p "$output_dir" || { echo "omarclip: cannot create $output_dir" >&2; exit 1; }
+
+bin="$cache_dir/bin/omarclip-gsr"
+if ! cmp -s "$src" "$bin"; then
+  tmp=$(mktemp "$bin.XXXXXX") || exit 1
+  if ! cp "$src" "$tmp" || ! chmod 755 "$tmp" || ! mv -f "$tmp" "$bin"; then
+    rm -f "$tmp"
+    echo "omarclip: could not copy $src" >&2
+    exit 1
+  fi
+fi
+
+# A buffer left behind by an earlier shell (a crash, a reload) holds the
+# socket and the GPU encoder; stop it first. Only ever our own copy.
+pidfile="$runtime_dir/recorder.pid"
+if [[ -f $pidfile ]]; then
+  old=$(<"$pidfile")
+  if [[ $old =~ ^[0-9]+$ && $(readlink "/proc/$old/exe" 2>/dev/null) == "$bin"* ]]; then
+    kill -INT "$old" 2>/dev/null
+    for _ in $(seq 30); do kill -0 "$old" 2>/dev/null || break; sleep 0.1; done
+    kill -KILL "$old" 2>/dev/null
+  fi
+fi
+
+echo $$ >"$pidfile"
+exec "$bin" "$@"

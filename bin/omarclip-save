@@ -1,0 +1,37 @@
+#!/bin/bash
+
+# Saves the last N seconds of the replay buffer. Takes JSON on stdin:
+#
+#   {"socket": "/run/user/1000/omarclip/gsr.sock", "seconds": 60}
+#
+# Prints one JSON line: {"ok", "path", "class", "title", "error"}. The window
+# in focus is read first, at the moment of the press, so the clip is filed
+# under what you were playing even if saving takes a while.
+
+set -uo pipefail
+
+request=$(cat)
+socket=$(jq -r '.socket // ""' <<<"$request" 2>/dev/null)
+seconds=$(jq -r '.seconds // 0' <<<"$request" 2>/dev/null)
+
+reply() {
+  jq -cn --arg ok "$1" --arg path "$2" --arg class "${class:-}" --arg title "${title:-}" --arg error "$3" \
+    '{ok: ($ok == "true"), path: $path, class: $class, title: $title, error: $error}'
+}
+
+window=$(hyprctl activewindow -j 2>/dev/null || echo '{}')
+class=$(jq -r '.class // ""' <<<"$window" 2>/dev/null)
+title=$(jq -r '.title // ""' <<<"$window" 2>/dev/null)
+
+[[ -S $socket ]] || { reply false "" "The replay buffer is not running"; exit 1; }
+[[ $seconds =~ ^[0-9]+$ && $seconds -gt 0 ]] || { reply false "" "Invalid clip length"; exit 2; }
+
+# A long buffer written from RAM to a slow disk can take a while.
+if ! out=$(timeout 300 gsr-cli -ipc "$socket" save-replay "$seconds" 2>&1); then
+  reply false "" "$(tail -n1 <<<"$out")"
+  exit 1
+fi
+
+path=$(tail -n1 <<<"$out")
+[[ -f $path ]] || { reply false "" "The recorder did not write a file"; exit 1; }
+reply true "$path" ""
