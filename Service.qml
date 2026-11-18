@@ -132,10 +132,19 @@ Item {
   // because `plugin remove` deletes the plugin folder.
   readonly property string cleanupScript: [
     "sleep 1",
-    "shell_json=$1 binds=$2 state_dir=$3 unbind=$4 id=$5 runtime_dir=$6 pid=$7",
+    "shell_json=$1 binds=$2 state_dir=$3 prefix=$4 id=$5 runtime_dir=$6 pid=$7 owned_awk=$8",
     "if [[ -f $shell_json ]] && jq -e --arg id \"$id\" 'any(.. | objects; .id? == $id)' \"$shell_json\" >/dev/null 2>&1; then exit 0; fi",
     "rm -f \"$binds\" \"$state_dir/state.json\"",
-    "[[ -n $unbind ]] && hyprctl eval \"$unbind\" >/dev/null 2>&1",
+    // Unbinding goes by key, so only keys Hyprland shows bound to us and to
+    // nothing else, read now. If the binds can't be read, nothing is unbound;
+    // the binds file is gone, so the next Hyprland reload drops ours anyway.
+    "if listing=$(hyprctl binds 2>/dev/null); then",
+    "  lua=''",
+    "  while IFS= read -r key; do",
+    "    [[ $key =~ ^((SUPER|CTRL|ALT|SHIFT)\\ \\+\\ )*code:[0-9]{1,3}$ ]] && lua+=\"pcall(hl.unbind, \\\"$key\\\")\"$'\\n'",
+    "  done < <(awk -v prefix=\"$prefix\" \"$owned_awk\" <<<\"$listing\")",
+    "  [[ -n $lua ]] && hyprctl eval \"$lua\" >/dev/null 2>&1",
+    "fi",
     // This instance's own recorder only, by the pid it had: a newer instance
     // may already have started another one.
     "if [[ $pid =~ ^[1-9][0-9]*$ && $(readlink \"/proc/$pid/exe\" 2>/dev/null) == */omarclip-gsr* ]]; then kill -INT \"$pid\"; fi",
@@ -148,8 +157,8 @@ Item {
     stopping = true
     try {
       Quickshell.execDetached(["bash", "-c", cleanupScript, "omarclip-cleanup",
-        shellJsonPath, bindsPath, stateDir, releaseLua(), pluginId, runtimeDir,
-        recorderProc.running ? recorderProc.processId : 0].map(String))
+        shellJsonPath, bindsPath, stateDir, bindPrefix, pluginId, runtimeDir,
+        recorderProc.running ? recorderProc.processId : 0, Hotkeys.OWNED_KEYS_AWK].map(String))
     } catch (e) {
       warn("cleanup did not start: " + e)
     }
@@ -579,6 +588,8 @@ Item {
   }
 
   property var hyprBinds: []
+  // The last `hyprctl binds` worked; until one has, no bind is added or removed.
+  property bool bindsKnown: false
   // Hotkeys left out because the user already has their keys bound: [{ name, label, by }].
   property var blockedHotkeys: []
   // Off while the panel records a new hotkey, so our binds don't eat the keys.
@@ -600,6 +611,10 @@ Item {
   }
 
   function writeBinds() {
+    if (!bindsKnown) {
+      hotkeysDone()
+      return
+    }
     var binds = []
     var blocked = []
     shortcuts.forEach(function(sc) {
@@ -627,19 +642,16 @@ Item {
     id: hotkeysTask
     onDone: function(exitCode, output, errorOutput) {
       if (exitCode !== 0) root.warn("applying hotkeys failed (" + exitCode + "): " + (output + errorOutput).trim())
-      root.syncing = false
-      if (root.syncAgain) {
-        root.syncAgain = false
-        root.syncBinds()
-      }
+      root.hotkeysDone()
     }
   }
 
-  // Everything bound for us: what Hyprland showed last, plus what was written since.
-  function releaseLua() {
-    var blocked = blockedHotkeys.map(function(b) { return b.name })
-    var current = shortcuts.filter(function(sc) { return blocked.indexOf(sc.name) === -1 }).map(function(sc) { return sc.keys })
-    return Hotkeys.reloadLua(Hotkeys.ownedKeys(hyprBinds, bindPrefix).concat(current), "")
+  function hotkeysDone() {
+    syncing = false
+    if (syncAgain) {
+      syncAgain = false
+      syncBinds()
+    }
   }
 
   function suspendHotkeys() {
@@ -667,8 +679,14 @@ Item {
   Task {
     id: bindsTask
     onDone: function(exitCode, output) {
+      root.bindsKnown = exitCode === 0
       if (exitCode === 0) root.hyprBinds = Hotkeys.readHyprBinds(output)
-      else root.warn("hyprctl binds failed (" + exitCode + "); binding without a conflict check")
+      else {
+        // Without them, a bind of ours could land on a key the user has, and
+        // unbinding ours would take theirs too.
+        root.hyprBinds = []
+        root.warn("hyprctl binds failed (" + exitCode + "); hotkeys are left as they are")
+      }
       if (root.rereadBinds) {
         root.rereadBinds = false
         bindsTask.start(["hyprctl", "binds"])

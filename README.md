@@ -235,8 +235,10 @@ omarchy restart shell
 omarchy plugin remove io.github.gelzinn.omarclip
 ```
 
-This stops the buffer and removes the hotkeys. Settings stay in
-`~/.config/omarclip`, and your clips stay where they are.
+This stops the buffer and removes the hotkeys. Only keys Hyprland shows
+bound to Omarclip and to nothing else are unbound, so a shortcut of yours on
+the same keys stays. Settings stay in `~/.config/omarclip`, and your clips
+stay where they are.
 
 ## Development
 

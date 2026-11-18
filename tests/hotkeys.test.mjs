@@ -113,3 +113,55 @@ test("conflicts come from other binds, by keycode or key name", () => {
   assert.equal(H.conflict(binds, "code:112", "Prior", "Omarclip: "), null)
   assert.equal(H.conflict(binds, "ALT + code:52", "Z", "Omarclip: ").description, "Something of the user's")
 })
+
+import { execFileSync } from "node:child_process"
+
+function awkOwned(text, prefix) {
+  const out = execFileSync("awk", ["-v", `prefix=${prefix}`, H.OWNED_KEYS_AWK], { input: text, encoding: "utf8" })
+  return out.split("\n").filter(Boolean).sort()
+}
+
+const LIVE = `bindd
+	modmask: 0
+	key: code:112
+	description: Omarclip: save clip
+
+bindd
+	modmask: 9
+	key: ALT + SHIFT + code:76
+	description:   Omarclip: turn instant replay on/off
+
+bindd
+	modmask: 8
+	key: code:52
+	description: Omarclip: open omarclip
+
+bindd
+	modmask: 8
+	key: code:52
+	description: Something of the user's
+
+bindd
+	modmask: 8
+	key: code:76
+	description: The user's Alt+F10
+
+bindd
+	modmask: 64
+	key: Return
+	description:
+`
+
+test("cleanup unbinds only keys bound to Omarclip and to nothing else", () => {
+  // Alt+Z is shared with a bind of the user's, and Alt+F10 (Omarclip's
+  // default save key) was never bound by Omarclip: both stay.
+  assert.deepEqual(awkOwned(LIVE, "Omarclip: "), ["ALT + SHIFT + code:76", "code:112"])
+  assert.deepEqual(awkOwned(LIVE, ""), [])
+  assert.deepEqual(awkOwned("", "Omarclip: "), [])
+})
+
+test("cleanup's awk agrees with ownedKeys", () => {
+  for (const text of [BINDS, LIVE]) {
+    assert.deepEqual(awkOwned(text, "Omarclip: "), [...H.ownedKeys(H.readHyprBinds(text), "Omarclip: ")].sort())
+  }
+})
