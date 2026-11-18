@@ -202,8 +202,8 @@ Item {
         return
       }
       root.configBroken = true
-      root.report("Could not read config.json (" + FileViewError.toString(error) + "); using defaults until it is fixed")
-      root.applyConfig(Config.defaults(), false)
+      root.report("Could not read config.json (" + FileViewError.toString(error) + "); replay and audio stay off until it is fixed")
+      root.applyConfig(Config.fallback(), false)
     }
     // Editors and shell redirects write in steps; read once they settle.
     onFileChanged: configReloadTimer.restart()
@@ -224,15 +224,20 @@ Item {
     var raw = String(text || "")
     if (ready && raw === configText) return
     var parsed
+    var problem = ""
     try {
       parsed = JSON.parse(raw)
+      if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) problem = "is not a JSON object"
     } catch (e) {
+      problem = "is not valid JSON (" + e + ")"
+    }
+    if (problem) {
       configBroken = true
       if (!ready) {
-        report("config.json is not valid JSON (" + e + "); using defaults until it is fixed")
-        applyConfig(Config.defaults(), false)
+        report("config.json " + problem + "; replay and audio stay off until it is fixed")
+        applyConfig(Config.fallback(), false)
       } else {
-        report("config.json has a syntax error; keeping the previous settings until it is fixed")
+        report("config.json " + problem + "; keeping the previous settings until it is fixed")
       }
       return
     }

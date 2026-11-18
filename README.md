@@ -161,6 +161,10 @@ it by hand, and the shell picks edits up live:
 }
 ```
 
+If the file cannot be read or is not a valid JSON object when the shell starts,
+Omarclip starts with replay, system audio and the microphone off and does not
+write to the file. Your settings take effect again once the file is fixed.
+
 | Key | |
 | --- | --- |
 | `enabled` | Keep the replay buffer running |

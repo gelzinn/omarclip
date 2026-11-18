@@ -116,3 +116,23 @@ test("labels", () => {
   assert.equal(Config.step(["a", "b", "c"], "c", 1), "a")
   assert.equal(Config.step(["a", "b", "c"], "a", -1), "c")
 })
+
+test("fallback, used while config.json is unreadable, captures nothing", () => {
+  const c = Config.fallback()
+  assert.equal(c.enabled, false)
+  assert.equal(c.systemAudio, false)
+  assert.equal(c.microphone, false)
+  assert.deepEqual(Config.normalize(c), c)
+  assert.equal(Config.defaults().enabled, true)
+})
+
+test("capture switches with a value that is not a boolean stay off", () => {
+  const c = Config.normalize({ enabled: "false", systemAudio: 0, microphone: "yes" })
+  assert.equal(c.enabled, false)
+  assert.equal(c.systemAudio, false)
+  assert.equal(c.microphone, false)
+  const missing = Config.normalize({})
+  assert.equal(missing.enabled, true)
+  assert.equal(missing.systemAudio, true)
+  assert.equal(missing.microphone, false)
+})
