@@ -18,8 +18,8 @@ esac
 if jq -e '.content | type == "string"' <<<"$input" >/dev/null; then
   mkdir -p "${file%/*}"
   # Not named *.lua, so a Hyprland reload in the meantime skips it.
-  staged="${file%.lua}.new"
-  jq -j '.content' <<<"$input" >"$staged" && mv -f "$staged" "$file" || {
+  staged=$(mktemp "${file%.lua}.XXXXXX") || { echo "omarclip-hotkeys: could not write $file" >&2; exit 1; }
+  jq -j '.content' <<<"$input" >"$staged" && mv -f -- "$staged" "$file" || {
     rm -f "$staged"
     echo "omarclip-hotkeys: could not write $file" >&2
     exit 1

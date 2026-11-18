@@ -7,7 +7,9 @@
 #    "name": "Cs2 2026-11-16 21-04-11",      (file name without extension)
 #    "thumbs": "/home/you/.cache/omarclip/thumbs"}
 #
-# Prints one JSON line: {"path", "thumb"}. A name already taken gets " (2)".
+# Prints one JSON line: {"path", "thumb", "filed"}. A name already taken
+# gets " (2)". If the clip can't be moved, it stays where the recorder wrote
+# it, "path" says so and "filed" is false.
 
 set -uo pipefail
 
@@ -19,14 +21,27 @@ thumbs=$(jq -r '.thumbs // ""' <<<"$request")
 
 [[ -f $path ]] || { echo "omarclip-file: no such clip" >&2; exit 1; }
 
-if [[ -n $dir && -n $name && $name != */* ]]; then
-  if mkdir -p -- "$dir"; then
-    target="$dir/$name.mp4"
-    n=2
-    while [[ -e $target ]]; do target="$dir/$name ($n).mp4"; n=$((n + 1)); done
-    mv -n -- "$path" "$target" && path=$target
-  fi
+filed=false
+[[ -z $dir ]] && filed=true
+
+if [[ -n $dir && -n $name && $name != */* ]] && mkdir -p -- "$dir"; then
+  # mv -n skips a destination that exists, and depending on the coreutils
+  # version still exits 0. So the move counts only once the clip has left
+  # its old path for the new one; a name taken in the meantime means the
+  # next name, anything else keeps the clip where it is.
+  for (( n = 1; n <= 100; n++ )); do
+    if (( n == 1 )); then target="$dir/$name.mp4"; else target="$dir/$name ($n).mp4"; fi
+    [[ -e $target || -L $target ]] && continue
+    mv -n -- "$path" "$target"
+    if [[ ! -e $path && -f $target ]]; then
+      path=$target
+      filed=true
+      break
+    fi
+    [[ -e $target || -L $target ]] || break
+  done
 fi
+[[ $filed == true ]] || echo "omarclip-file: could not file the clip in $dir; it stays at $path" >&2
 
 thumb=""
 if [[ -n $thumbs ]] && command -v ffmpeg >/dev/null && mkdir -p -- "$thumbs"; then
@@ -37,4 +52,4 @@ if [[ -n $thumbs ]] && command -v ffmpeg >/dev/null && mkdir -p -- "$thumbs"; th
     || thumb=""
 fi
 
-jq -cn --arg path "$path" --arg thumb "$thumb" '{path: $path, thumb: $thumb}'
+jq -cn --arg path "$path" --arg thumb "$thumb" --arg filed "$filed" '{path: $path, thumb: $thumb, filed: ($filed == "true")}'

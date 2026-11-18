@@ -132,8 +132,8 @@ Item {
   // because `plugin remove` deletes the plugin folder.
   readonly property string cleanupScript: [
     "sleep 1",
-    "shell_json=$1 binds=$2 state_dir=$3 prefix=$4 id=$5 runtime_dir=$6 pid=$7 owned_awk=$8",
-    "if [[ -f $shell_json ]] && jq -e --arg id \"$id\" 'any(.. | objects; .id? == $id)' \"$shell_json\" >/dev/null 2>&1; then exit 0; fi",
+    "shell_json=$1 binds=$2 state_dir=$3 prefix=$4 id=$5 runtime_dir=$6 pid=$7 owned_awk=$8 listed_jq=$9",
+    "if [[ -f $shell_json ]] && jq -e --arg id \"$id\" \"$listed_jq\" \"$shell_json\" >/dev/null 2>&1; then exit 0; fi",
     "rm -f \"$binds\" \"$state_dir/state.json\"",
     // Unbinding goes by key, so only keys Hyprland shows bound to us and to
     // nothing else, read now. If the binds can't be read, nothing is unbound;
@@ -149,7 +149,7 @@ Item {
     // may already have started another one.
     "if [[ $pid =~ ^[1-9][0-9]*$ && $(readlink \"/proc/$pid/exe\" 2>/dev/null) == */omarclip-gsr* ]]; then kill -INT \"$pid\"; fi",
     "current=$(cat \"$runtime_dir/recorder.pid\" 2>/dev/null)",
-    "if [[ -z $current || $current == \"$pid\" ]]; then rm -rf \"$runtime_dir\"; fi"
+    "if [[ ( -z $current || $current == \"$pid\" ) && -d $runtime_dir && ! -L $runtime_dir && -O $runtime_dir ]]; then rm -rf \"$runtime_dir\"; fi"
   ].join("\n")
 
   Component.onDestruction: {
@@ -158,7 +158,7 @@ Item {
     try {
       Quickshell.execDetached(["bash", "-c", cleanupScript, "omarclip-cleanup",
         shellJsonPath, bindsPath, stateDir, bindPrefix, pluginId, runtimeDir,
-        recorderProc.running ? recorderProc.processId : 0, Hotkeys.OWNED_KEYS_AWK].map(String))
+        recorderProc.running ? recorderProc.processId : 0, Hotkeys.OWNED_KEYS_AWK, Config.SHELL_LISTED_JQ].map(String))
     } catch (e) {
       warn("cleanup did not start: " + e)
     }
@@ -529,7 +529,8 @@ Item {
       var reply = null
       try { reply = JSON.parse(String(output || "").trim().split("\n").pop()) } catch (e) { reply = null }
       if (!reply || !reply.path) {
-        root.warn("filing the clip failed: " + String(errorOutput || "").trim())
+        var why = String(errorOutput || "").trim().split("\n").pop().replace(/^omarclip-file: /, "")
+        root.report("Could not save the clip: " + (why || "exit " + exitCode), "error", true)
         return
       }
       var held = Math.min(job.seconds, root.bufferedSeconds() || job.seconds)
@@ -541,7 +542,9 @@ Item {
         root.notify("Clip saved", job.app + " · " + Config.formatLength(held) + " · " + reply.path.split("/").pop(),
           { glyph: Glyphs.saved, image: reply.thumb, open: reply.path, action: true })
       }
-      if (root.panelOpen) root.report("Saved " + reply.path.split("/").pop(), "info")
+      // The recorder's file is the clip either way; filing it is a tidy-up.
+      if (reply.filed === false) root.report("Saved, but it could not be moved to the clips folder; it is at " + reply.path, "info")
+      else if (root.panelOpen) root.report("Saved " + reply.path.split("/").pop(), "info")
     }
   }
 

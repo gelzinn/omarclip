@@ -136,3 +136,29 @@ test("capture switches with a value that is not a boolean stay off", () => {
   assert.equal(missing.systemAudio, true)
   assert.equal(missing.microphone, false)
 })
+
+import { execFileSync } from "node:child_process"
+
+function listed(shell, id = "io.github.gelzinn.omarclip") {
+  try {
+    execFileSync("jq", ["-e", "--arg", "id", id, Config.SHELL_LISTED_JQ], { input: JSON.stringify(shell), stdio: ["pipe", "ignore", "ignore"] })
+    return true
+  } catch {
+    return false
+  }
+}
+
+test("cleanup reads shell.json the way Omarchy decides a plugin is enabled", () => {
+  const id = "io.github.gelzinn.omarclip"
+  assert.equal(listed({ plugins: [{ id }] }), true)
+  assert.equal(listed({ bar: { layout: { right: [{ id: "x" }, { id }] } } }), true)
+  // Layout entries can be the id on its own.
+  assert.equal(listed({ bar: { layout: { center: ["x", id] } } }), true)
+  assert.equal(listed({ bar: { id } }), true)
+  // Disabled or removed: listed nowhere the shell looks.
+  assert.equal(listed({ plugins: [{ id: "other" }], bar: { layout: { right: ["x"] } } }), false)
+  assert.equal(listed({}), false)
+  assert.equal(listed({ plugins: "nope", bar: [] }), false)
+  // An id somewhere else is not the plugin being enabled.
+  assert.equal(listed({ dock: { pinned: [{ id }] }, bar: { layout: { right: [{ id: "x", settings: { id } }] } } }), false)
+})

@@ -24,7 +24,15 @@ src=$(command -v gpu-screen-recorder) || {
   exit 127
 }
 
-mkdir -p "$runtime_dir" "$cache_dir/bin" && chmod 700 "$runtime_dir" || exit 1
+mkdir -p "$runtime_dir" "$cache_dir/bin" || exit 1
+# The socket and pid file live here. Without XDG_RUNTIME_DIR it falls back to
+# /tmp, where another user could have made it first: only a real folder of
+# ours will do.
+if [[ -L $runtime_dir || ! -d $runtime_dir || ! -O $runtime_dir ]]; then
+  echo "omarclip: $runtime_dir is not a folder of yours" >&2
+  exit 1
+fi
+chmod 700 "$runtime_dir" || exit 1
 mkdir -p "$output_dir" || { echo "omarclip: cannot create $output_dir" >&2; exit 1; }
 
 bin="$cache_dir/bin/omarclip-gsr"
