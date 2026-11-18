@@ -109,9 +109,71 @@ test("reads hyprctl binds and tells ours from the user's", () => {
 
 test("conflicts come from other binds, by keycode or key name", () => {
   const binds = H.readHyprBinds(BINDS)
-  assert.equal(H.conflict(binds, "SUPER + CTRL + code:52", "Z", "Omarclip: ").description, "Zoom in")
-  assert.equal(H.conflict(binds, "code:112", "Prior", "Omarclip: "), null)
-  assert.equal(H.conflict(binds, "ALT + code:52", "Z", "Omarclip: ").description, "Something of the user's")
+  assert.equal(H.conflict(binds, "SUPER + CTRL + code:52", ["z"], "Omarclip: ").description, "Zoom in")
+  assert.equal(H.conflict(binds, "code:112", ["prior", "page_up"], "Omarclip: "), null)
+  assert.equal(H.conflict(binds, "ALT + code:52", ["z"], "Omarclip: ").description, "Something of the user's")
+})
+
+// Excerpt of `xkbcli dump-keymap-wayland` (us,br).
+const KEYMAP = `xkb_keymap {
+xkb_keycodes "(unnamed)" {
+	<AB01>               = 52;
+	<FK10>               = 76;
+	<PGUP>               = 112;
+	<BKSL>               = 51;
+	alias <AC12>         = <BKSL>;
+};
+xkb_symbols "(unnamed)" {
+	key <AB01>               {
+		symbols[1]= [               z,               Z ],
+		symbols[2]= [               z,               Z,   guillemotleft,            less ]
+	};
+	key <FK10>               {
+		type= "CTRL+ALT",
+		symbols[1]= [             F10,             F10,             F10,             F10, XF86Switch_VT_10 ]
+	};
+	key <PGUP>               {	[           Prior ] };
+	key <AC12>               {	[      NoSymbol ] };
+};
+};`
+
+test("reads every key name a keycode produces from the keymap", () => {
+  const km = H.readKeymap(KEYMAP)
+  assert.deepEqual([...km[76]], ["f10", "xf86switch_vt_10"])
+  assert.deepEqual([...km[52]], ["z", "guillemotleft", "less"])
+  assert.deepEqual([...km[112]], ["prior", "page_up"])
+  assert.deepEqual([...km[51]], [])
+  assert.equal(H.readKeymap(""), null)
+  assert.equal(H.readKeymap("hyprctl: error"), null)
+})
+
+const USER_F10 = `bindd
+	modmask: 8
+	key: F10
+	description: The user's Alt+F10
+
+bindd
+	modmask: 9
+	key: page_up
+	description: The user's Alt+Shift+PgUp
+`
+
+test("a bind by key name blocks the same key by keycode", () => {
+  const km = H.readKeymap(KEYMAP)
+  const binds = H.readHyprBinds(USER_F10)
+  // The default save hotkey, Alt+F10 by keycode, against the user's Alt+F10 by name.
+  assert.equal(H.conflict(binds, "ALT + code:76", H.keyNames(km, "ALT + code:76", ""), "Omarclip: ").description, "The user's Alt+F10")
+  assert.equal(H.conflict(binds, "ALT + SHIFT + code:112", H.keyNames(km, "ALT + SHIFT + code:112", ""), "Omarclip: ").description, "The user's Alt+Shift+PgUp")
+  // Other modifiers, or another key, are free.
+  assert.equal(H.conflict(binds, "ALT + SHIFT + code:76", H.keyNames(km, "ALT + SHIFT + code:76", ""), "Omarclip: "), null)
+  assert.equal(H.conflict(binds, "ALT + code:52", H.keyNames(km, "ALT + code:52", ""), "Omarclip: "), null)
+})
+
+test("without a keymap, a bind by name on the same modifiers counts as taken", () => {
+  const binds = H.readHyprBinds(USER_F10)
+  assert.equal(H.keyNames(null, "ALT + code:52", "Z"), null)
+  assert.equal(H.conflict(binds, "ALT + code:52", null, "Omarclip: ").description, "The user's Alt+F10")
+  assert.equal(H.conflict(binds, "CTRL + code:52", null, "Omarclip: "), null)
 })
 
 import { execFileSync } from "node:child_process"

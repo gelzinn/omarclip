@@ -621,8 +621,8 @@ Item {
     var binds = []
     var blocked = []
     shortcuts.forEach(function(sc) {
-      var other = Hotkeys.conflict(hyprBinds, sc.keys, "", bindPrefix)
-      if (other) blocked.push({ name: sc.name, label: sc.label, by: other.description || "another bind" })
+      var other = Hotkeys.conflict(hyprBinds, sc.keys, Hotkeys.keyNames(keymap, sc.keys, ""), bindPrefix)
+      if (other) blocked.push({ name: sc.name, label: sc.label, by: bindLabel(other) })
       else binds.push({ keys: sc.keys, action: sc.name, description: sc.description })
     })
     if (!hotkeysPaused && JSON.stringify(blocked) !== JSON.stringify(blockedHotkeys)) {
@@ -673,18 +673,33 @@ Item {
   property var bindsReaders: []
   property bool rereadBinds: false
 
+  // keycode -> the key names it produces (Hotkeys.readKeymap), or null when
+  // the keymap could not be read. A bind of the user's by key name (ALT, F10)
+  // is on the same key as one of ours by keycode (ALT + code:76); this is
+  // how the two are matched.
+  property var keymap: null
+
+  // Hyprland's binds, then the keyboard's keymap, in one go.
+  readonly property var bindsCommand: ["bash", "-c",
+    'hyprctl binds || exit 1; printf "\\n%s\\n" "$1"; timeout 5 xkbcli dump-keymap-wayland 2>/dev/null; exit 0',
+    "omarclip-binds", "===omarclip-keymap==="]
+
   function readBinds(then) {
     if (then) bindsReaders = bindsReaders.concat([then])
     if (bindsTask.busy) rereadBinds = true
-    else bindsTask.start(["hyprctl", "binds"])
+    else bindsTask.start(bindsCommand)
   }
 
   Task {
     id: bindsTask
     onDone: function(exitCode, output) {
       root.bindsKnown = exitCode === 0
-      if (exitCode === 0) root.hyprBinds = Hotkeys.readHyprBinds(output)
-      else {
+      var parts = String(output || "").split("\n===omarclip-keymap===\n")
+      if (exitCode === 0) {
+        root.hyprBinds = Hotkeys.readHyprBinds(parts[0])
+        root.keymap = Hotkeys.readKeymap(parts[1] || "")
+        if (!root.keymap) root.warn("could not read the keymap; a bind by key name on the same modifiers counts as taken")
+      } else {
         // Without them, a bind of ours could land on a key the user has, and
         // unbinding ours would take theirs too.
         root.hyprBinds = []
@@ -692,7 +707,7 @@ Item {
       }
       if (root.rereadBinds) {
         root.rereadBinds = false
-        bindsTask.start(["hyprctl", "binds"])
+        bindsTask.start(root.bindsCommand)
         return
       }
       var readers = root.bindsReaders
@@ -706,8 +721,15 @@ Item {
     if (!hotkey) return null
     var used = Config.usedKeys(config)[hotkey.keys]
     if (used && used !== action) return { kind: "omarclip", description: actionLabels[used], action: used }
-    var bind = Hotkeys.conflict(hyprBinds, hotkey.keys, hotkey.sym, bindPrefix)
-    return bind ? { kind: "hyprland", description: bind.description || "another bind" } : null
+    var bind = Hotkeys.conflict(hyprBinds, hotkey.keys, Hotkeys.keyNames(keymap, hotkey.keys, hotkey.sym), bindPrefix)
+    return bind ? { kind: "hyprland", description: bindLabel(bind) } : null
+  }
+
+  // How a bind in the way is named. Without the keymap, a bind by key name
+  // may only possibly be on the same key; say so.
+  function bindLabel(bind) {
+    var name = bind.description || "another bind"
+    return keymap || /^code:\d+$/.test(bind.key) ? name : name + " (the keymap could not be read to rule it out)"
   }
 
   // Keys another action had move here; the panel never offers keys a

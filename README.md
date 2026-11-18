@@ -35,7 +35,8 @@ Everything here ships with Omarchy 4; there is nothing to install.
 
 - **Omarchy 4**, whose shell (`omarchy-shell`, Quickshell) hosts the plugin
 - **gpu-screen-recorder** with `gsr-cli` (in Omarchy's base packages)
-- **Hyprland**, for the global hotkeys
+- **Hyprland**, for the global hotkeys, and `xkbcli` (libxkbcommon, which Hyprland
+  depends on) to read the keymap when checking hotkeys against your own binds
 - `bash`, `jq`, `ffmpeg` (for the notification preview) and the usual coreutils
 - A GPU with a hardware video encoder: NVIDIA (NVENC), AMD or Intel (VA-API)
 
@@ -67,7 +68,9 @@ You can change or clear all three in the settings. F-keys, PgUp, PgDn, Home,
 End, Insert and Print work on their own; keys that type need Super, Ctrl or
 Alt, and Enter, Esc, Tab, Backspace, Delete and the arrows need some
 modifier. A key Hyprland already uses
-is refused, and the panel tells you which bind has it. Omarclip never
+is refused, and the panel tells you which bind has it. That includes a bind
+you wrote by key name (`ALT, F10`) for a key Omarclip binds by keycode, and the
+default hotkeys too: one already taken stays unbound. Omarclip never
 overrides your binds. Its own binds live in
 `~/.local/state/omarchy/toggles/hypr/omarclip.lua`, a folder Omarchy loads on
 every Hyprland reload, so your config files are never touched.
