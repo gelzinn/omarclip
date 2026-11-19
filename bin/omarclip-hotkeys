@@ -1,30 +1,22 @@
 #!/bin/bash
-# Saves Omarclip's binds file and runs Lua in Hyprland, from JSON on stdin:
-#   {"file": ".../toggles/hypr/omarclip.lua", "content": "..." | null, "lua": "..."}
-# content null leaves the file alone. The Lua goes through hyprctl eval, so
-# bind descriptions never show up in a process list.
+# Runs Omarclip's hotkey Lua in Hyprland, from JSON on stdin:
+#   {"lua": "...", "stale": ".../toggles/hypr/omarclip.lua"}
+# The binds are never saved where Hyprland's config loads them: a reload
+# drops them, and Omarclip binds them again only after checking the binds in
+# effect. `stale` is the binds file older versions saved there, removed so a
+# reload can't bring those binds back unchecked. The Lua goes through
+# hyprctl eval, so bind descriptions never show up in a process list.
 set -uo pipefail
-umask 077
 
 input=$(cat)
 field() { jq -r --arg k "$1" '.[$k] // empty' <<<"$input"; }
 
-file=$(field file)
-case $file in
-  /*.lua) ;;
-  *) echo "omarclip-hotkeys: file must be an absolute .lua path" >&2; exit 2 ;;
+stale=$(field stale)
+case $stale in
+  '') ;;
+  /*/toggles/hypr/*.lua) rm -f -- "$stale" || { echo "omarclip-hotkeys: could not remove $stale" >&2; exit 1; } ;;
+  *) echo "omarclip-hotkeys: stale must be a .lua file in a toggles/hypr folder" >&2; exit 2 ;;
 esac
-
-if jq -e '.content | type == "string"' <<<"$input" >/dev/null; then
-  mkdir -p "${file%/*}"
-  # Not named *.lua, so a Hyprland reload in the meantime skips it.
-  staged=$(mktemp "${file%.lua}.XXXXXX") || { echo "omarclip-hotkeys: could not write $file" >&2; exit 1; }
-  jq -j '.content' <<<"$input" >"$staged" && mv -f -- "$staged" "$file" || {
-    rm -f "$staged"
-    echo "omarclip-hotkeys: could not write $file" >&2
-    exit 1
-  }
-fi
 
 lua=$(field lua)
 [[ -z $lua ]] || hyprctl eval "$lua"

@@ -71,9 +71,13 @@ modifier. A key Hyprland already uses
 is refused, and the panel tells you which bind has it. That includes a bind
 you wrote by key name (`ALT, F10`) for a key Omarclip binds by keycode, and the
 default hotkeys too: one already taken stays unbound. Omarclip never
-overrides your binds. Its own binds live in
-`~/.local/state/omarchy/toggles/hypr/omarclip.lua`, a folder Omarchy loads on
-every Hyprland reload, so your config files are never touched.
+overrides your binds. Its binds are made in the running Hyprland only and never
+saved to a config file, so your config files are never touched. A Hyprland
+reload drops them, and Omarclip binds them again only after checking the binds
+your config now has, so a shortcut you add and reload takes the key from
+Omarclip instead of sharing it. A bind added live, without a reload
+(`hyprctl keyword` or `hyprctl eval`), is caught at the next reload or
+hotkey change.
 
 The bar button opens the settings. Right-click it to save a clip, or
 middle-click to turn instant replay on or off. The icon dims while the
@@ -270,7 +274,7 @@ never fights an installed Omarclip. `OMARCLIP_DEV_FOCUS=1` and
 | `bin/omarclip-recorder` | Starts the replay buffer from its private copy |
 | `bin/omarclip-save` | Saves the last N seconds and reads the window in focus |
 | `bin/omarclip-file` | Files the clip under its app and makes the preview |
-| `bin/omarclip-hotkeys` | Writes the hotkeys file and has Hyprland load it |
+| `bin/omarclip-hotkeys` | Binds and unbinds the hotkeys in the running Hyprland |
 
 ## License
 

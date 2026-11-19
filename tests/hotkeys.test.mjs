@@ -55,7 +55,7 @@ test("Lua strings can't be broken out of", () => {
   assert.equal(H.luaQuote("é"), "\"\\195\\169\"")
 })
 
-test("the binds file keeps valid, distinct binds only", () => {
+test("the binds Lua keeps valid, distinct binds only", () => {
   const lua = H.bindsLua("omarclip", [
     { keys: "ALT + code:76", action: "save", description: "Omarclip: save clip" },
     { keys: "ALT + code:76", action: "toggle", description: "same keys" },
@@ -69,9 +69,16 @@ test("the binds file keeps valid, distinct binds only", () => {
   assert.match(lua, /hl\.dsp\.global\(app \.\. ":" \.\. b\[2\]\)/)
 })
 
-test("reloading releases old keys once, then loads the file", () => {
-  const lua = H.reloadLua(["code:112", "code:112", "bogus"], "/s/omarclip.lua")
-  assert.equal(lua, "for _, k in ipairs({ \"code:112\" }) do pcall(hl.unbind, k) end\ndofile(\"/s/omarclip.lua\")")
+test("the binds Lua is empty when there is nothing to bind", () => {
+  assert.equal(H.bindsLua("omarclip", []), "")
+  assert.equal(H.bindsLua("omarclip", [{ keys: "bogus", action: "save" }]), "")
+})
+
+test("reloading releases old keys once, then binds, and never loads a file", () => {
+  const binds = H.bindsLua("omarclip", [{ keys: "code:112", action: "save", description: "Omarclip: save clip" }])
+  const lua = H.reloadLua(["code:112", "code:112", "bogus"], binds)
+  assert.equal(lua, "for _, k in ipairs({ \"code:112\" }) do pcall(hl.unbind, k) end\n" + binds)
+  assert.ok(!/dofile|require|loadfile/.test(lua))
   assert.equal(H.reloadLua([], ""), "")
 })
 

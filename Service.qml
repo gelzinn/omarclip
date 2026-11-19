@@ -40,8 +40,11 @@ Item {
   readonly property string cacheDir: (Quickshell.env("XDG_CACHE_HOME") || home + "/.cache") + "/" + appId
   readonly property string runtimeDir: (Quickshell.env("XDG_RUNTIME_DIR") || "/tmp") + "/" + appId
   readonly property string socketPath: runtimeDir + "/gsr.sock"
-  // Omarchy requires every Lua file in this folder on each Hyprland reload,
-  // which is what keeps the hotkeys bound across reloads and logins.
+  // Where older versions saved the binds. Omarchy requires every Lua
+  // file in this folder on each Hyprland reload, which brought the binds back
+  // without checking them, so it is removed and no longer written. The binds
+  // now live only in the running compositor and are set again, after a fresh
+  // check, whenever Hyprland reloads (see the configreloaded handler).
   readonly property string bindsPath: (Quickshell.env("XDG_STATE_HOME") || home + "/.local/state") + "/omarchy/toggles/hypr/" + appId + ".lua"
   readonly property string shellJsonPath: (Quickshell.env("XDG_CONFIG_HOME") || home + "/.config") + "/omarchy/shell.json"
   // Every bind Omarclip makes is described with this prefix, which is how it
@@ -137,7 +140,7 @@ Item {
     "rm -f \"$binds\" \"$state_dir/state.json\"",
     // Unbinding goes by key, so only keys Hyprland shows bound to us and to
     // nothing else, read now. If the binds can't be read, nothing is unbound;
-    // the binds file is gone, so the next Hyprland reload drops ours anyway.
+    // the next Hyprland reload drops ours anyway, since no file brings them back.
     "if listing=$(hyprctl binds 2>/dev/null); then",
     "  lua=''",
     "  while IFS= read -r key; do",
@@ -600,6 +603,10 @@ Item {
 
   property bool syncing: false
   property bool syncAgain: false
+  // Counts Hyprland reloads. A sync whose binds were read before a reload
+  // binds nothing (the read is stale) and leaves it to the sync after it.
+  property int reloads: 0
+  property int syncReload: 0
 
   // Read Hyprland's binds, release what is bound for us, write the file and
   // load it. One at a time, so each read sees the previous result.
@@ -610,12 +617,19 @@ Item {
       return
     }
     syncing = true
+    syncReload = reloads
     readBinds(writeBinds)
   }
 
   function writeBinds() {
-    if (!bindsKnown) {
+    if (syncReload !== reloads) {
+      syncAgain = true
       hotkeysDone()
+      return
+    }
+    if (!bindsKnown) {
+      // Nothing is bound or released, but an old binds file still goes.
+      hotkeysTask.start([pluginDir + "/bin/omarclip-hotkeys"], { input: JSON.stringify({ stale: bindsPath, lua: "" }) })
       return
     }
     var binds = []
@@ -632,9 +646,8 @@ Item {
     }
     hotkeysTask.start([pluginDir + "/bin/omarclip-hotkeys"], {
       input: JSON.stringify({
-        file: bindsPath,
-        content: hotkeysPaused ? null : Hotkeys.bindsLua(appId, binds),
-        lua: Hotkeys.reloadLua(Hotkeys.ownedKeys(hyprBinds, bindPrefix), hotkeysPaused ? "" : bindsPath)
+        stale: bindsPath,
+        lua: Hotkeys.reloadLua(Hotkeys.ownedKeys(hyprBinds, bindPrefix), hotkeysPaused ? "" : Hotkeys.bindsLua(appId, binds))
       })
     })
     log("hotkeys: " + (hotkeysPaused ? "paused while recording a hotkey"
@@ -646,6 +659,18 @@ Item {
     onDone: function(exitCode, output, errorOutput) {
       if (exitCode !== 0) root.warn("applying hotkeys failed (" + exitCode + "): " + (output + errorOutput).trim())
       root.hotkeysDone()
+    }
+  }
+
+  // A Hyprland reload drops every bind made at runtime, ours included, and
+  // loads the user's config, which may now have binds on our keys. Ours come
+  // back only through syncBinds, checked against the binds now in effect.
+  Connections {
+    target: Hyprland
+    function onRawEvent(event) {
+      if (!event || String(event.name) !== "configreloaded") return
+      root.reloads++
+      root.syncBinds()
     }
   }
 
@@ -686,6 +711,12 @@ Item {
 
   function readBinds(then) {
     if (then) bindsReaders = bindsReaders.concat([then])
+    startBindsRead()
+  }
+
+  // A read asked for while one runs, or from a reader of the last one (the
+  // task still counts as running then), starts once that one is done.
+  function startBindsRead() {
     if (bindsTask.busy) rereadBinds = true
     else bindsTask.start(bindsCommand)
   }
@@ -707,12 +738,16 @@ Item {
       }
       if (root.rereadBinds) {
         root.rereadBinds = false
-        bindsTask.start(root.bindsCommand)
+        Qt.callLater(root.startBindsRead)
         return
       }
       var readers = root.bindsReaders
       root.bindsReaders = []
       readers.forEach(function(then) { then() })
+      if (root.rereadBinds) {
+        root.rereadBinds = false
+        Qt.callLater(root.startBindsRead)
+      }
     }
   }
 
